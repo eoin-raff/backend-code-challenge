@@ -3,7 +3,7 @@ import {Request, Response, NextFunction} from 'express'
 // I will assume that IRL there would be more than one valid token, 
 // and that they would be stored in a more secure manner
 const validTokens = new Set<string>([
-    'dGhlc2VjcmV0dG9rZW4'
+    'dGhlc2VjcmV0dG9rZW4='
 ])
 
 export function authenticateToken(req:Request, res:Response, next:NextFunction){
