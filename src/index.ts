@@ -63,6 +63,7 @@ app.get(Routes.DISTANCE, (req: Request, res: Response) => {
     return;
   }
   const result = getDistanceBetweenCities(startCity, endCity);
+  res.status(200).send(result);
 });
 
 app.use(Routes.AREA, authenticateToken);
