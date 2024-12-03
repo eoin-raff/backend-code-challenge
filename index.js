@@ -25,7 +25,6 @@ const server = `${protocol}://${host}:${port}`;
   // ah, that's better
   assert.strictEqual(result.status, 200);
   let body = await result.json();
-  console.log(body)
 
   // we expect only one city to match
   assert.strictEqual(body.cities.length, 1);

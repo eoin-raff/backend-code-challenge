@@ -4,7 +4,7 @@
   "description": "GAN Integrity backend code challenge",
   "main": "dist/index.js",
   "scripts": {
-    "start:server": "nodemon src/index.ts",
+    "start:server": "nodemon src/index.ts --ignore all-cities.json",
     "start": "node index.js"
   },
   "author": "GAN Integrity",
