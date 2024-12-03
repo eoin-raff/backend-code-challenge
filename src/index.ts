@@ -3,11 +3,16 @@ import fs from "fs-extra";
 import dotenv from "dotenv";
 import { Readable } from "stream";
 import { City } from "../types";
-import { Routes } from "./routes";
 import { authenticateToken } from "./authenticateToken";
 import { getCitiesByTag } from "./getCitiesByTag";
 import { getDistanceBetweenCities } from "./getDistanceBetweenCities";
 import { getCitiesWithinDistance } from "./getCitiesWithinDistance";
+import { validateQueryParams } from "./validateQueryParams";
+import {
+  areaSchemaFactory,
+  citiesByTagSchema,
+  distanceSchemaFactory,
+} from "./schema";
 
 dotenv.config();
 
@@ -21,6 +26,7 @@ if (isNaN(port)) {
 
 //Load data from adresses.json
 export let citiesData: City[] = [];
+
 fs.readJson("addresses.json")
   .then((data) => {
     citiesData = data;
@@ -36,34 +42,23 @@ app.get("/", (req, res) => {
   res.send("Server is running");
 });
 
-app.get(Routes.CITIES_BY_TAG, (req, res) => {
-  const { tag, isActive } = req.query;
-  if (!tag || typeof tag !== "string") {
-    res.status(400).send({ message: `Invalid tag: ${tag}` });
+app.get(
+  "/cities-by-tag",
+  validateQueryParams(citiesByTagSchema),
+  (req, res) => {
+    const { tag, isActive } = req.query;
+    const result = getCitiesByTag(tag as string, Boolean(isActive), citiesData);
+    res.status(200).send({ cities: result });
     return;
   }
-  if (isActive === undefined || (isActive !== "true" && isActive !== "false")) {
-    res.status(400).send({ message: `Invalid isActive value: ${isActive}` });
-    return;
-  }
-  const result = getCitiesByTag(tag as string, Boolean(isActive), citiesData);
-  res.status(200).send({ cities: result });
-  return;
-});
+);
 
-app.get(Routes.DISTANCE, (req, res) => {
+const distanceSchema = distanceSchemaFactory(citiesData);
+app.get("/distance", validateQueryParams(distanceSchema), (req, res) => {
   const { from, to } = req.query;
-  const startCity = citiesData.find((city) => city.guid === from);
-  const endCity = citiesData.find((city) => city.guid === to);
+  const startCity = citiesData.find((city) => city.guid === from)!;
+  const endCity = citiesData.find((city) => city.guid === to)!;
 
-  if (!startCity) {
-    res.status(400).send({ message: `No city found with ID ${from}` });
-    return;
-  }
-  if (!endCity) {
-    res.status(400).send({ message: `No city found with ID ${to}` });
-    return;
-  }
   const result = getDistanceBetweenCities(startCity, endCity);
   res.status(200).send(result);
 });
@@ -72,18 +67,10 @@ const areaJobs = new Map<
   string,
   { status: "completed" | "pending" | "error"; result?: City[] | string }
 >();
-app.get(Routes.AREA, (req, res) => {
+const areaSchema = areaSchemaFactory(citiesData);
+app.get("/area", validateQueryParams(areaSchema), (req, res) => {
   const { from, distance } = req.query;
 
-  //validate parameters
-  if (!from || typeof from !== "string") {
-    res.status(400).send({ message: `Invalid 'from' parameter: ${from}` });
-    return;
-  }
-  if (!distance || isNaN(Number(distance)) || Number(distance) < 0) {
-    res.status(400).send({ message: `Invalid 'distance' parameter: ${from}` });
-    return;
-  }
   const targetDistance = Number(distance);
   const fromCity = citiesData.find((city) => city.guid === from);
   if (!fromCity) {
@@ -97,13 +84,11 @@ app.get(Routes.AREA, (req, res) => {
   areaJobs.set(jobID, { status: "pending" });
   runAreaInBackground(jobID, fromCity, targetDistance);
   res.status(202).send({
-    resultsUrl: `http://${host}:${port}/${
-      Routes.AREA_RESULTS.split("/")[1]
-    }/${jobID}`,
+    resultsUrl: `http://${host}:${port}/area-result/${jobID}`,
   });
 });
 
-app.get(Routes.AREA_RESULTS, (req, res) => {
+app.get("/area-result/:id", (req, res) => {
   const { id } = req.params;
   const job = areaJobs.get(id);
   if (!job) {
@@ -124,7 +109,7 @@ app.get(Routes.AREA_RESULTS, (req, res) => {
   }
 });
 
-app.get(Routes.ALL_CITIES, (req, res) => {
+app.get("/all-cities", (req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.setHeader(
     "Content-Disposition",
@@ -139,26 +124,19 @@ app.get(Routes.ALL_CITIES, (req, res) => {
     read() {
       if (index < dataLength) {
         const city = JSON.stringify(citiesData[index]);
-        this.push(index === 0 ? "[" + city : "," + city); // Add array bracket to first element
+        this.push(index === 0 ? "[" + city : "," + city);
         index++;
       } else {
-        this.push("]\n"); // Close the JSON array
-        this.push(null); // Signal the end of the stream
+        this.push("]\n");
+        this.push(null);
       }
     },
   });
 
-  // Pipe the stream to the response
   cityStream.pipe(res);
 
-  // Handle errors
   cityStream.on("error", (err) => {
-    console.error("❌ Stream error:", err);
     res.status(500).send({ error: "Failed to stream cities data." });
-  });
-
-  cityStream.on("end", () => {
-    console.log("✅ Finished streaming all cities.");
   });
 });
 
