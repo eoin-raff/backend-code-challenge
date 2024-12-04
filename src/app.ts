@@ -8,21 +8,11 @@ import { getCitiesByTag } from "./getCitiesByTag";
 import { getDistanceBetweenCities } from "./getDistanceBetweenCities";
 import { getCitiesWithinDistance } from "./getCitiesWithinDistance";
 import { validateQueryParams } from "./validateQueryParams";
-import {
-  areaSchemaFactory,
-  citiesByTagSchema,
-  distanceSchemaFactory,
-} from "./schema";
-
+import { areaSchema, citiesByTagSchema, distanceSchema } from "./schema";
+// Initialize environment variables
 dotenv.config();
 
 const app: Express = express();
-const host = process.env.HOST || "127.0.0.1";
-const port = +(process.env.PORT || 8080); //+ to parse env variable to number
-
-if (isNaN(port)) {
-  throw new Error("Invalid PORT value in environment variables");
-}
 
 //Load data from adresses.json
 export let citiesData: City[] = [];
@@ -35,8 +25,9 @@ fs.readJson("addresses.json")
     console.error("Error reading addresses.json", err);
   });
 
-//Add Authentication Middleware to all routes
-app.use(authenticateToken);
+if (process.env.NODE_ENV !== "test") {
+  app.use(authenticateToken);
+}
 
 app.get("/", (req, res) => {
   res.send("Server is running");
@@ -45,7 +36,10 @@ app.get("/", (req, res) => {
 app.get(
   "/cities-by-tag",
   validateQueryParams(citiesByTagSchema),
+
   (req, res) => {
+    console.log("[server]: /cities-by-tag");
+
     const { tag, isActive } = req.query;
     const result = getCitiesByTag(tag as string, Boolean(isActive), citiesData);
     res.status(200).send({ cities: result });
@@ -53,11 +47,20 @@ app.get(
   }
 );
 
-const distanceSchema = distanceSchemaFactory(citiesData);
 app.get("/distance", validateQueryParams(distanceSchema), (req, res) => {
+  console.log("[server]: /distance");
   const { from, to } = req.query;
-  const startCity = citiesData.find((city) => city.guid === from)!;
-  const endCity = citiesData.find((city) => city.guid === to)!;
+  const startCity = citiesData.find((city) => city.guid === from);
+  const endCity = citiesData.find((city) => city.guid === to);
+
+  if (!startCity) {
+    res.status(400).send({ message: "start city not found" });
+    return;
+  }
+  if (!endCity) {
+    res.status(400).send({ message: "end city not found" });
+    return;
+  }
 
   const result = getDistanceBetweenCities(startCity, endCity);
   res.status(200).send(result);
@@ -67,8 +70,9 @@ const areaJobs = new Map<
   string,
   { status: "completed" | "pending" | "error"; result?: City[] | string }
 >();
-const areaSchema = areaSchemaFactory(citiesData);
+
 app.get("/area", validateQueryParams(areaSchema), (req, res) => {
+  console.log("[server]: /area");
   const { from, distance } = req.query;
 
   const targetDistance = Number(distance);
@@ -84,12 +88,13 @@ app.get("/area", validateQueryParams(areaSchema), (req, res) => {
   areaJobs.set(jobID, { status: "pending" });
   runAreaInBackground(jobID, fromCity, targetDistance);
   res.status(202).send({
-    resultsUrl: `http://${host}:${port}/area-result/${jobID}`,
+    resultsUrl: `http://${process.env.HOST}:${process.env.PORT}/area-result/${jobID}`,
   });
 });
 
 app.get("/area-result/:id", (req, res) => {
   const { id } = req.params;
+  console.log(`[server]: /area-result/${id}`);
   const job = areaJobs.get(id);
   if (!job) {
     res.status(400).send({ message: `No job found with id ${id}` });
@@ -110,6 +115,7 @@ app.get("/area-result/:id", (req, res) => {
 });
 
 app.get("/all-cities", (req, res) => {
+  console.log("[server]: /all-cities");
   res.setHeader("Content-Type", "application/json");
   res.setHeader(
     "Content-Disposition",
@@ -140,14 +146,12 @@ app.get("/all-cities", (req, res) => {
   });
 });
 
-app.listen(port, host, () => {
-  console.log(`[server]: Server is running at http://localhost:${port}`);
-});
+export default app;
 
 //TODO: make it async or threaded to handle large dataset
 function runAreaInBackground(id: string, city: City, distance: number) {
   try {
-    const result = getCitiesWithinDistance(city, distance);
+    const result = getCitiesWithinDistance(city, distance, citiesData);
     areaJobs.set(id, { status: "completed", result });
   } catch (error) {
     areaJobs.set(id, {

@@ -1,8 +1,11 @@
-import { citiesData } from ".";
 import { City } from "../types";
 import { haversineDistance } from "./utils";
 
-export function getCitiesWithinDistance(fromCity: City, targetDistance: number) {
+export function getCitiesWithinDistance(
+  fromCity: City,
+  targetDistance: number,
+  citiesData: City[]
+) {
   const citiesWithinDistance = citiesData
     .map((toCity) => {
       if (toCity.guid === fromCity.guid) {
